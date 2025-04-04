@@ -14,12 +14,12 @@ class Line_Tracking:
     def test_Infrared(self):
         try:
             while True:
-                if IR01_sensor.value !=True and IR02_sensor.value == True and IR03_sensor.value !=True:
-                    print ('Middle')
+                if IR01_sensor.value ==True and IR02_sensor.value != True and IR03_sensor.value !=True:
+                    print ('Left')
                 elif IR01_sensor.value !=True and IR02_sensor.value != True and IR03_sensor.value ==True:
                     print ('Right')
-                elif IR01_sensor.value ==True and IR02_sensor.value != True and IR03_sensor.value !=True:
-                    print ('Left')
+                elif IR01_sensor.value !=True and IR02_sensor.value == True and IR03_sensor.value !=True:
+                    print ('Middle')
         except KeyboardInterrupt:
             print ("\nEnd of program")
         
@@ -45,6 +45,13 @@ class Line_Tracking:
             elif self.LMR==7:
                 #pass
                 PWM.setMotorModel(0,0,0,0)
+
+    def getvalues(self):
+        left = int(IR01_sensor.value)
+        middle = int(IR02_sensor.value)
+        right = int(IR03_sensor.value)
+        return f"L:{left} M:{middle} R:{right}"
+             
             
 infrared=Line_Tracking()
 # Main program logic follows:
