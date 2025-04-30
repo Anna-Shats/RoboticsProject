@@ -287,10 +287,28 @@ def manual_control(stdscr, pwm):
     last_key_time = 0
     current_key = None
     
+    # Initialize infrared sensors
+    ir = Infrared()
+    
     try:
         while True:
             key = stdscr.getch()
             current_time = time.time()
+            
+            # Read IR sensors
+            left_infrared = ir.read_one_infrared(1)
+            center_infrared = ir.read_one_infrared(2)
+            right_infrared = ir.read_one_infrared(3)
+            
+            # Visual representation of sensors
+            left_symbol = "0" if left_infrared else "X"
+            middle_symbol = "0" if center_infrared else "X"
+            right_symbol = "0" if right_infrared else "X"
+            sensor_visual = f"{left_symbol} | {middle_symbol} | {right_symbol}"
+            
+            # Display IR sensor info
+            stdscr.addstr(3, 0, f"IR Sensors: {sensor_visual}  (0=Line, X=No Line)" + " " * 5)
+            stdscr.addstr(4, 0, f"L:{left_infrared} C:{center_infrared} R:{right_infrared}" + " " * 5)
             
             # Always register new key presses
             if key != -1:
@@ -334,6 +352,7 @@ def manual_control(stdscr, pwm):
     finally:
         # Make sure motors are stopped when exiting manual mode
         pwm.set_motor_model(0, 0, 0, 0)
+        ir.close()
 
 def display_menu(stdscr):
     # Set up curses for menu display
