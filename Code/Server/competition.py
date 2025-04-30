@@ -199,6 +199,16 @@ def manual_control(stdscr, pwm):
     # Initialize infrared sensors
     ir = Infrared()
     
+    # Initialize servo
+    from servo import Servo
+    servo = Servo()
+    
+    # Servo scanning variables
+    servo_angles = [0, 30, 60, 90, 120, 150, 180]
+    current_angle_index = 0
+    last_servo_move_time = time.time()
+    servo_interval = 0.8  # seconds between servo movements
+    
     try:
         while True:
             key = stdscr.getch()
@@ -218,6 +228,16 @@ def manual_control(stdscr, pwm):
             # Display IR sensor info
             stdscr.addstr(3, 0, f"IR Sensors: {sensor_visual}  (0=Line, X=No Line)" + " " * 5)
             stdscr.addstr(4, 0, f"L:{left_infrared} C:{center_infrared} R:{right_infrared}" + " " * 5)
+            
+            # Move servo at regular intervals
+            if current_time - last_servo_move_time >= servo_interval:
+                current_angle = servo_angles[current_angle_index]
+                servo.set_servo_pwm('1', current_angle)
+                stdscr.addstr(5, 0, f"Servo angle: {current_angle}°" + " " * 10)
+                
+                # Move to next angle
+                current_angle_index = (current_angle_index + 1) % len(servo_angles)
+                last_servo_move_time = current_time
             
             # Always register new key presses
             if key != -1:
@@ -262,6 +282,8 @@ def manual_control(stdscr, pwm):
         # Make sure motors are stopped when exiting manual mode
         pwm.set_motor_model(0, 0, 0, 0)
         ir.close()
+        # Reset servo position to center before exiting
+        servo.set_servo_pwm('1', 90)
 
 def maze_solving(stdscr, pwm):
     # Set up curses
