@@ -35,7 +35,7 @@ if __name__ == '__main__':
     pwm_servo = Servo()
     try:
         while True:
-            pwm_servo.set_servo_pwm('0', 90)
+            pwm_servo.set_servo_pwm('0', 85)
             pwm_servo.set_servo_pwm('1', 90)
     except KeyboardInterrupt:
         print("\nEnd of program")

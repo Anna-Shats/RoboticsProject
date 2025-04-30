@@ -9,6 +9,14 @@ import time
 from motor import Ordinary_Car
 from infrared import Infrared
 
+def a_star(stdscr, pwm):
+    # Set up curses for line tracking display
+    stdscr.nodelay(True)  # Non-blocking input
+    curses.curs_set(0)    # Hide cursor
+    stdscr.clear()
+    
+    
+
 def line_tracking(stdscr, pwm):
     # Set up curses for line tracking display
     stdscr.nodelay(True)  # Non-blocking input
@@ -29,19 +37,6 @@ def line_tracking(stdscr, pwm):
         
         # For tracking time between episodes
         car_record_time = time.time()
-        
-        # To track the last known sensor pattern that detected the line
-        last_active_sensor = 2  # Default to center
-        consecutive_empty = 0   # Count consecutive times no line was detected
-        
-        # Corner handling variables
-        corner_handling_state = 0  # 0=none, 1=detected, 2=overshooting, 3=turning
-        corner_turn_direction = 0  # 0=none, 1=left, 2=right
-        corner_state_steps = 0     # Count steps in each corner handling state
-        
-        # Constants for corner handling
-        OVERSHOOT_STEPS = 3       # How many forward movements to overshoot
-        TURN_STEPS = 15            # How many turn movements to make
         
         while True:
             # Check for quit key
@@ -73,169 +68,94 @@ def line_tracking(stdscr, pwm):
                 if max_y > 2:
                     stdscr.addstr(2, 0, f"IR Value: {infrared_value} | L:{left_infrared} C:{center_infrared} R:{right_infrared}" + " " * 5)
                 
-                # Corner handling sequence
-                if corner_handling_state > 0:
-                    # Already in a corner handling sequence
-                    if corner_handling_state == 1:  # Just detected corner, start overshooting
-                        if max_y > 3:
-                            stdscr.addstr(3, 0, f"Action: Overshoot {corner_state_steps}/{OVERSHOOT_STEPS}" + " " * 10)
-                        
-                        # Move forward to overshoot the corner
-                        pwm.set_motor_model(-1000, -1000, -1000, -1000)  # Forward at good speed
-                        time.sleep(0.15)
-                        pwm.set_motor_model(0, 0, 0, 0)  # Stop
-                        time.sleep(0.05)
-                        
-                        corner_state_steps += 1
-                        if corner_state_steps >= OVERSHOOT_STEPS:
-                            # Move to turning state
-                            corner_handling_state = 2
-                            corner_state_steps = 0
+                # Simple line following logic
+                if left_infrared == 4:
+                    # Turn left in episodes
+                    if max_y > 3:
+                        stdscr.addstr(3, 0, "Action: Turn Left          " + " " * 10)
+                    pwm.set_motor_model(-1250, -1250, 1250, 1250)  # Turn left
+                    time.sleep(0.15)  # Turn for a short time
+                    pwm.set_motor_model(0, 0, 0, 0)  # Stop
+                    time.sleep(0.1)  # Pause to check sensors
+                
+                elif right_infrared == 1:
+                    # Turn right in episodes
+                    if max_y > 3:
+                        stdscr.addstr(3, 0, "Action: Turn Right         " + " " * 10)
+                    pwm.set_motor_model(1250, 1250, -1250, -1250)  # Turn right
+                    time.sleep(0.15)  # Turn for a short time
+                    pwm.set_motor_model(0, 0, 0, 0)  # Stop
+                    time.sleep(0.1)  # Pause to check sensors
+                
+                elif center_infrared == 2:
+                    # Move forward in episodes with slight left-right slithering
+                    if max_y > 3:
+                        stdscr.addstr(3, 0, "Action: Forward (Slithering)" + " " * 10)
                     
-                    elif corner_handling_state == 2:  # Overshooting complete, now turn
-                        # Execute turn based on saved direction
-                        if corner_turn_direction == 1:  # Left turn
-                            if max_y > 3:
-                                stdscr.addstr(3, 0, f"Action: Sharp Left {corner_state_steps}/{TURN_STEPS}" + " " * 10)
-                            # Sharper left turn
-                            pwm.set_motor_model(-800, -800, 1200, 1200)
-                        else:  # Right turn
-                            if max_y > 3:
-                                stdscr.addstr(3, 0, f"Action: Sharp Right {corner_state_steps}/{TURN_STEPS}" + " " * 10)
-                            # Sharper right turn
-                            pwm.set_motor_model(1200, 1200, -800, -800)
-                        
-                        time.sleep(0.15)  # Longer turn
-                        pwm.set_motor_model(0, 0, 0, 0)  # Stop
-                        time.sleep(0.05)
-                        
-                        corner_state_steps += 1
-                        if corner_state_steps >= TURN_STEPS:
-                            # Corner sequence completed
-                            corner_handling_state = 0
-                            corner_turn_direction = 0
-                            corner_state_steps = 0
-                            
-                            if max_y > 3:
-                                stdscr.addstr(3, 0, "Action: Corner Complete     " + " " * 10)
+                    # Alternate between slightly left and slightly right
+                    # Use a timestamp-based alternation
+                    if int(time.time() * 5) % 2 == 0:  # Changes every 0.2 seconds
+                        # Slight left bias while moving forward
+                        pwm.set_motor_model(-700, -700, -900, -900)
+                    else:
+                        # Slight right bias while moving forward
+                        pwm.set_motor_model(-900, -900, -700, -700)
+                    
+                    time.sleep(0.15)
+                    pwm.set_motor_model(0, 0, 0, 0)  # Stop
+                    time.sleep(0.05)  # Shorter pause for smoother motion
                 
                 else:
-                    # Normal line following, including corner detection
+                    # Line lost - track consecutive misses
+                    if not hasattr(line_tracking, 'consecutive_misses'):
+                        line_tracking.consecutive_misses = 0
+                    line_tracking.consecutive_misses += 1
                     
-                    # Check for corner pattern: left and center sensors on
-                    if left_infrared == 4 and center_infrared == 2 and not right_infrared == 1:
+                    if line_tracking.consecutive_misses <= 10:
+                        # First few misses - move backward briefly
                         if max_y > 3:
-                            stdscr.addstr(3, 0, "Action: LEFT CORNER DETECTED" + " " * 10)
-                        # Start corner handling sequence
-                        corner_handling_state = 1
-                        corner_turn_direction = 1  # Left turn
-                        corner_state_steps = 0
-                        last_active_sensor = 1
-                        consecutive_empty = 0
-                    
-                    # Check for corner pattern: center and right sensors on
-                    elif center_infrared == 2 and right_infrared == 1 and not left_infrared == 4:
-                        if max_y > 3:
-                            stdscr.addstr(3, 0, "Action: RIGHT CORNER DETECTED" + " " * 10)
-                        # Start corner handling sequence
-                        corner_handling_state = 1
-                        corner_turn_direction = 2  # Right turn
-                        corner_state_steps = 0
-                        last_active_sensor = 3
-                        consecutive_empty = 0
-                    
-                    # Case: All three sensors on - could be a wide line or intersection
-                    elif left_infrared == 4 and center_infrared == 2 and right_infrared == 1:
-                        if max_y > 3:
-                            stdscr.addstr(3, 0, "Action: All Sensors On     " + " " * 10)
-                        # Go straight but slower
-                        pwm.set_motor_model(-600, -600, -600, -600)  # Slow forward
-                        time.sleep(0.2)
+                            stdscr.addstr(3, 0, "Action: Line Lost, Backing " + " " * 10)
+                        pwm.set_motor_model(800, 800, 800, 800)  # Move backward (inverted values)
+                        time.sleep(0.1)  # Shorter backward movement
                         pwm.set_motor_model(0, 0, 0, 0)  # Stop
-                        time.sleep(0.1)
-                        consecutive_empty = 0
-                    
-                    # Normal line tracking
-                    elif left_infrared == 4:  # Just left sensor on
-                        if max_y > 3:
-                            stdscr.addstr(3, 0, "Action: Turn Left          " + " " * 10)
-                        pwm.set_motor_model(-900, -900, 1250, 1250)  # Turn left
-                        time.sleep(0.15)
-                        pwm.set_motor_model(0, 0, 0, 0)  # Stop
-                        time.sleep(0.1)
-                        last_active_sensor = 1
-                        consecutive_empty = 0
-                    
-                    elif right_infrared == 1:  # Just right sensor on
-                        if max_y > 3:
-                            stdscr.addstr(3, 0, "Action: Turn Right         " + " " * 10)
-                        pwm.set_motor_model(1250, 1250, -900, -900)  # Turn right
-                        time.sleep(0.15)
-                        pwm.set_motor_model(0, 0, 0, 0)  # Stop
-                        time.sleep(0.1)
-                        last_active_sensor = 3
-                        consecutive_empty = 0
-                    
-                    elif center_infrared == 2:  # Just center sensor on
-                        if max_y > 3:
-                            stdscr.addstr(3, 0, "Action: Forward            " + " " * 10)
-                        pwm.set_motor_model(-800, -800, -800, -800)  # Move forward
-                        time.sleep(0.2)
-                        pwm.set_motor_model(0, 0, 0, 0)  # Stop
-                        time.sleep(0.1)
-                        last_active_sensor = 2
-                        consecutive_empty = 0
-                    
-                    else:  # No sensors - recovery behavior
-                        consecutive_empty += 1
-                        
-                        # For the first few misses, keep going forward
-                        if consecutive_empty <= 3:
+                        time.sleep(0.05)
+                    else:
+                        # After several misses, try a sweeping search
+                        sweep_direction = line_tracking.consecutive_misses % 2
+                        if sweep_direction == 0:
+                            # Try turning left to find line
                             if max_y > 3:
-                                stdscr.addstr(3, 0, "Action: Continue Forward " + " " * 10)
-                            pwm.set_motor_model(-600, -600, -600, -600)  # Slower forward
-                            time.sleep(0.1)
-                            pwm.set_motor_model(0, 0, 0, 0)  # Stop
-                            time.sleep(0.05)
-                        
-                        # After several misses, try to recover based on last sensor
+                                stdscr.addstr(3, 0, "Action: Searching Left    " + " " * 10)
+                            pwm.set_motor_model(-800, -800, 1100, 1100)
                         else:
-                            if last_active_sensor == 1:  # Left was last active
-                                if max_y > 3:
-                                    stdscr.addstr(3, 0, "Action: Seek Left       " + " " * 10)
-                                pwm.set_motor_model(-600, -600, -1000, -1000)  # Forward with left bias
-                            elif last_active_sensor == 3:  # Right was last active
-                                if max_y > 3:
-                                    stdscr.addstr(3, 0, "Action: Seek Right      " + " " * 10)
-                                pwm.set_motor_model(-1000, -1000, -600, -600)  # Forward with right bias
-                            else:  # Center was last active
-                                if max_y > 3:
-                                    stdscr.addstr(3, 0, "Action: Small Slither   " + " " * 10)
-                                # Alternate slight left and right movement
-                                if consecutive_empty % 2 == 0:
-                                    pwm.set_motor_model(-600, -600, -900, -900)  # Slight left bias
-                                else:
-                                    pwm.set_motor_model(-900, -900, -600, -600)  # Slight right bias
-                            
-                            time.sleep(0.1)  # Move for a short time
-                            pwm.set_motor_model(0, 0, 0, 0)  # Stop
-                            time.sleep(0.05)  # Short pause
+                            # Try turning right to find line
+                            if max_y > 3:
+                                stdscr.addstr(3, 0, "Action: Searching Right   " + " " * 10)
+                            pwm.set_motor_model(1100, 1100, -800, -800)
+                        
+                        time.sleep(0.12)
+                        pwm.set_motor_model(0, 0, 0, 0)  # Stop
+                        time.sleep(0.05)
+                        
+                        # Reset counter after many attempts
+                        if line_tracking.consecutive_misses > 12:
+                            line_tracking.consecutive_misses = 0
+                
+                # Reset consecutive misses when we detect the line
+                if left_infrared == 4 or center_infrared == 2 or right_infrared == 1:
+                    if hasattr(line_tracking, 'consecutive_misses'):
+                        line_tracking.consecutive_misses = 0
                 
                 # Robot visualization - only if screen is big enough
                 if max_y > 6:
                     robot_vis = "    ↑    "  # Default forward position
                     
-                    if corner_handling_state == 1:
-                        robot_vis = "    ⇑    "  # Overshooting (bold forward)
-                    elif corner_handling_state == 2:
-                        if corner_turn_direction == 1:
-                            robot_vis = "  ↰      "  # Left turn after overshoot
-                        else:
-                            robot_vis = "      ↱  "  # Right turn after overshoot
-                    elif last_active_sensor == 1:
+                    if left_infrared == 4:
                         robot_vis = "  ↖      "  # Left arrow
-                    elif last_active_sensor == 3:
+                    elif right_infrared == 1:
                         robot_vis = "      ↗  "  # Right arrow
+                    elif center_infrared != 2 and left_infrared != 4 and right_infrared != 1:
+                        robot_vis = "    ↓    "  # Down arrow (backing up)
                     
                     if max_y > 4:
                         stdscr.addstr(4, 0, "Robot position:" + " " * 10)
@@ -243,17 +163,6 @@ def line_tracking(stdscr, pwm):
                         stdscr.addstr(5, 0, f"  {robot_vis}  " + " " * 5)
                     if max_y > 6:
                         stdscr.addstr(6, 0, f"  {sensor_visual}  " + " " * 5)
-                
-                # Debug info only if screen is big enough
-                if max_y > 7:
-                    corner_state = "NONE"
-                    if corner_handling_state == 1:
-                        corner_state = f"OVERSHOOT-{corner_state_steps}/{OVERSHOOT_STEPS}"
-                    elif corner_handling_state == 2:
-                        turn_dir = "LEFT" if corner_turn_direction == 1 else "RIGHT"
-                        corner_state = f"TURN {turn_dir}-{corner_state_steps}/{TURN_STEPS}"
-                    
-                    stdscr.addstr(7, 0, f"Corner: {corner_state} | Last: {last_active_sensor} | Empty: {consecutive_empty}" + " " * 5)
                 
                 stdscr.refresh()
             
@@ -265,7 +174,7 @@ def line_tracking(stdscr, pwm):
         try:
             rows, cols = stdscr.getmaxyx()
             if rows > 8:
-                stdscr.addstr(8, 0, "Error occurred" + " " * 10)
+                stdscr.addstr(8, 0, f"Error occurred: {str(e)}" + " " * 10)
             stdscr.refresh()
             time.sleep(2)
         except:
@@ -354,6 +263,204 @@ def manual_control(stdscr, pwm):
         pwm.set_motor_model(0, 0, 0, 0)
         ir.close()
 
+def maze_solving(stdscr, pwm):
+    # Set up curses
+    stdscr.nodelay(True)
+    curses.curs_set(0)
+    stdscr.clear()
+    
+    # Import additional modules
+    from ultrasonic import Ultrasonic
+    from buzzer import Buzzer
+    
+    # Define the sequence of turns (left=L, right=R)
+    sequence = ["L", "R", "R", "L", "L", "L", "R", "L", "L", "R", "R", "R", "L", "L", "R", "R", "R", "L", "R", "L", "L", "R"]
+    current_step = 0
+    
+    # Setup ultrasonic sensor and buzzer
+    ultrasonic = Ultrasonic()
+    buzzer = Buzzer()
+    buzzer_enabled = True  # Can be toggled
+    
+    try:
+        running = True
+        forward_speed = -1000  # Forward speed (negative for forward)
+        turning_speed = 1500   # Speed for turning
+        turn_time = 0.65       # Time for ~90 degree turn
+        wall_threshold = 10.0  # Increased threshold to stop earlier
+        
+        # Distance history for display
+        distance_history = [0] * 5  # Keep last 5 readings
+        
+        max_y, max_x = stdscr.getmaxyx()
+        
+        # Initial display
+        if max_y > 0:
+            stdscr.addstr(0, 0, "Maze Solving Mode (Q to return to menu, B to toggle buzzer)")
+        if max_y > 1:
+            stdscr.addstr(1, 0, "Starting maze sequence")
+        if max_y > 2:
+            stdscr.addstr(2, 0, f"Next turn: {sequence[current_step]}")
+        stdscr.refresh()
+        
+        # For gradual slowing
+        approach_threshold = 25.0  # Start slowing down at this distance
+        
+        # Main loop
+        while running:
+            # Check for quit key
+            key = stdscr.getch()
+            if key == ord('q'):
+                running = False
+                break
+            elif key == ord('b'):
+                # Toggle buzzer
+                buzzer_enabled = not buzzer_enabled
+                if max_y > 4:
+                    stdscr.addstr(4, 0, f"Buzzer: {'ON ' if buzzer_enabled else 'OFF'}" + " "*10)
+                    stdscr.refresh()
+            
+            # Get distance - take multiple readings for better accuracy
+            distances = []
+            for _ in range(3):  # Take 3 readings
+                dist = ultrasonic.get_distance()
+                if dist is not None:
+                    distances.append(dist)
+                time.sleep(0.01)  # Very short delay between readings
+            
+            # Use median of readings if available
+            if distances:
+                distances.sort()
+                distance = distances[len(distances)//2]  # Median value
+                
+                # Update history
+                distance_history.pop(0)
+                distance_history.append(distance)
+            else:
+                distance = None
+            
+            # Display current status and distance history
+            if distance is not None and max_y > 3:
+                stdscr.addstr(3, 0, f"Distance: {distance:.1f}cm, Step: {current_step+1}/{len(sequence)}" + " "*10)
+                
+                # Display distance history if there's room
+                if max_y > 7:
+                    stdscr.addstr(7, 0, "Recent distances: " + " "*20)
+                    hist_str = " ".join([f"{d:.1f}" for d in distance_history])
+                    stdscr.addstr(8, 0, hist_str + " "*20)
+                
+                stdscr.refresh()
+            
+            # Detect wall and perform turn
+            if distance is not None:
+                # Gradual speed adjustment based on distance
+                if distance <= approach_threshold and distance > wall_threshold:
+                    # Calculate a proportional speed reduction as we approach the wall
+                    speed_factor = (distance - wall_threshold) / (approach_threshold - wall_threshold)
+                    speed_factor = max(0.4, min(1.0, speed_factor))  # Clamp between 0.4 and 1.0
+                    adjusted_speed = int(forward_speed * speed_factor)
+                    
+                    if max_y > 5:
+                        stdscr.addstr(5, 0, f"Slowing: {adjusted_speed} ({speed_factor:.2f})" + " "*15)
+                    
+                    pwm.set_motor_model(adjusted_speed, adjusted_speed, adjusted_speed, adjusted_speed)
+                
+                # Stop and turn when we reach the threshold
+                if distance <= wall_threshold:
+                    # Sound buzzer if enabled
+                    if buzzer_enabled:
+                        buzzer.set_state(True)
+                        time.sleep(0.1)
+                        buzzer.set_state(False)
+                    
+                    # Emergency stop
+                    pwm.set_motor_model(0, 0, 0, 0)
+                    if max_y > 6:
+                        stdscr.addstr(6, 0, f"Wall detected at {distance:.1f}cm!" + " "*15)
+                        stdscr.refresh()
+                    time.sleep(0.3)
+                    
+                    # Turn based on the sequence
+                    if current_step < len(sequence):
+                        turn_direction = sequence[current_step]
+                        
+                        if max_y > 5:
+                            stdscr.addstr(5, 0, f"Turning {turn_direction}" + " "*15)
+                            stdscr.refresh()
+                        
+                        if turn_direction == "L":
+                            # Turn left (90 degrees)
+                            pwm.set_motor_model(-turning_speed, -turning_speed, turning_speed, turning_speed)
+                        else:  # "R"
+                            # Turn right (90 degrees)
+                            pwm.set_motor_model(turning_speed, turning_speed, -turning_speed, -turning_speed)
+                        
+                        time.sleep(turn_time)
+                        
+                        # Stop after turning
+                        pwm.set_motor_model(0, 0, 0, 0)
+                        time.sleep(0.3)
+                        
+                        # Move to next step in sequence
+                        current_step += 1
+                        if current_step < len(sequence):
+                            if max_y > 2:
+                                stdscr.addstr(2, 0, f"Next turn: {sequence[current_step]}" + " "*10)
+                                stdscr.refresh()
+                        else:
+                            if max_y > 2:
+                                stdscr.addstr(2, 0, "Sequence complete!" + " "*10)
+                                stdscr.refresh()
+                                time.sleep(2)
+                                running = False
+                                break
+                    else:
+                        # Sequence completed
+                        if max_y > 2:
+                            stdscr.addstr(2, 0, "Sequence complete!" + " "*10)
+                            stdscr.refresh()
+                        running = False
+                        break
+                elif distance > wall_threshold and distance <= approach_threshold:
+                    # We're in the approach zone but not at the wall yet
+                    continue  # Skip the normal forward movement below
+                else:
+                    # Move forward at full speed
+                    pwm.set_motor_model(forward_speed, forward_speed, forward_speed, forward_speed)
+            else:
+                # No valid distance reading, move forward cautiously
+                pwm.set_motor_model(forward_speed//2, forward_speed//2, forward_speed//2, forward_speed//2)
+            
+            # Short delay between iterations
+            time.sleep(0.02)  # Faster loop for more responsive stopping
+            
+        # Final message
+        stdscr.clear()
+        if max_y > 0:
+            stdscr.addstr(0, 0, "Maze solving completed or stopped")
+        if max_y > 1:
+            stdscr.addstr(1, 0, "Press any key to return to menu")
+        stdscr.refresh()
+        
+        # Wait for key press
+        stdscr.nodelay(False)
+        stdscr.getch()
+        
+    except Exception as e:
+        # Safe error handling
+        try:
+            if max_y > 9:
+                stdscr.addstr(9, 0, f"Error: {str(e)}" + " "*20)
+            stdscr.refresh()
+            time.sleep(2)
+        except:
+            pass
+    finally:
+        # Clean up
+        pwm.set_motor_model(0, 0, 0, 0)
+        ultrasonic.close()
+        buzzer.close()
+
 def display_menu(stdscr):
     # Set up curses for menu display
     curses.curs_set(1)  # Show cursor
@@ -364,6 +471,7 @@ def display_menu(stdscr):
     menu_items = [
         "1. Manual Control (WASD)",
         "2. Line Tracking",
+        "3. Maze Solving",
         "q. Quit"
     ]
     
@@ -390,6 +498,8 @@ def main(stdscr):
                 manual_control(stdscr, PWM)
             elif key == ord('2') or key == ord('l'):
                 line_tracking(stdscr, PWM)
+            elif key == ord('3'):
+                maze_solving(stdscr, PWM)
             elif key == ord('q'):
                 break
             else:
