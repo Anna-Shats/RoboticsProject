@@ -51,7 +51,7 @@ class Line_Tracking:
                 # Middle sensor detects line - go straight
                 if IR01_sensor.value !=True and IR02_sensor.value == True and IR03_sensor.value !=True:
                     print('Middle - Going straight')
-                    PWM.set_motor_model(-1500, -1500, -1500, -1500)  # Forward at slower speed
+                    PWM.set_motor_model(-1000, -1000, -1000, -1000)  # Forward at slower speed
                 
                 # Right sensor detects line - gentle right turn
                 elif IR01_sensor.value !=True and IR02_sensor.value != True and IR03_sensor.value ==True:
